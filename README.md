@@ -12,6 +12,7 @@ This document outlines the scope and system design for a web-based communication
 | **Messaging** | 1-on-1 real-time text messaging, basic chat history | Group chats, read receipts, multimedia sharing, offline message queuing |
 | **Resource Limits** | Hard-capped 30-40% resource utilization per node | Dynamic load balancing based on device power states |
 
+
 3. System Architecture & Technology Stack
 ·	Computing Paradigm: Distributed P2P / Edge Mesh. The application operates as a decentralized mesh network where two physical laptops act as cooperative primary nodes routing messages and syncing data.
 ·	Resource Management: Application-level throttling (using Python's psutil and OS process priority controls) to ensure the background node daemon consumes a maximum of 30-40% of system CPU and memory.
