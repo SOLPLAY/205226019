@@ -5,7 +5,7 @@ This document outlines the scope and system design for a web-based communication
 
 2. Feature Scope
 | Category | Phase 1: 12-Week MVP (Base Scope) | Phase 2: Long-term Vision |
-| :--- | :--- | :--- |
+|---|---|---|
 | **User Management** | Basic registration and authentication | OAuth integration, advanced profile management, status updates |
 | **Messaging** | 1-on-1 real-time text messaging, basic chat history | Group chats, read receipts, multimedia sharing, offline message queuing |
 | **Resource Limits** | Hard-capped 30-40% resource utilization per node | Dynamic load balancing based on device power states |
