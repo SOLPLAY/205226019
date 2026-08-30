@@ -4,6 +4,8 @@
 This document outlines the scope and system design for a web-based communication application utilizing a Distributed Peer-to-Peer (P2P) Edge computing paradigm. The 12-week MVP focuses on deploying cooperative node daemons across two physical laptops, demonstrating decentralized resource management, node synchronization, and local network discovery.
 
 2. Feature Scope
+
+
 | Category | Phase 1: 12-Week MVP (Base Scope) | Phase 2: Long-term Vision |
 |---|---|---|
 | **User Management** | Basic registration and authentication | OAuth integration, advanced profile management, status updates |
