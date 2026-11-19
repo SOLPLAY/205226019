@@ -1,0 +1,66 @@
+name: Build DEN installers
+
+on:
+  workflow_dispatch:
+  push:
+    tags:
+      - "v*"
+
+permissions:
+  contents: read
+
+jobs:
+  linux-deb:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install Linux package dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y dpkg-dev python3-yaml python3-qrcode python3-tk openssl iproute2
+      - name: Run DEN tests
+        working-directory: DEN
+        run: python3 -m unittest discover -s tests -v
+      - name: Build Debian package
+        run: DEN/packaging/linux/build_deb.sh DEN/dist
+      - uses: actions/upload-artifact@v4
+        with:
+          name: den-linux-deb
+          path: DEN/dist/*.deb
+          if-no-files-found: error
+
+  windows-exe:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Install build dependencies
+        run: python -m pip install -r DEN/requirements.txt pyinstaller
+      - name: Build node setup application
+        working-directory: DEN
+        run: pyinstaller --noconfirm --clean --onefile --windowed --name DEN-Join --paths . node/setup_gui.py
+      - uses: actions/upload-artifact@v4
+        with:
+          name: den-windows-exe
+          path: DEN/dist/DEN-Join.exe
+          if-no-files-found: error
+
+  android-apk:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: "17"
+      - uses: android-actions/setup-android@v3
+      - name: Build Android APK
+        working-directory: DEN/android
+        run: ./gradlew --no-daemon assembleDebug
+      - uses: actions/upload-artifact@v4
+        with:
+          name: den-android-apk
+          path: DEN/android/app/build/outputs/apk/debug/*.apk
+          if-no-files-found: error

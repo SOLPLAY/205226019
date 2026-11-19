@@ -2,7 +2,7 @@
 
 *A research prototype for a self-organizing, resource-aware, failure-tolerant distributed edge network.*
 
-**Current implementation milestone:** Three autonomous nodes communicating  
+**Current implementation milestones:** Three-node peer prototype; LAN monitoring/enrollment prototype
 **Implementation plan:** `DEN-IMP-002`  
 **Research methodology:** `DEN-EXP-001`
 
@@ -35,11 +35,11 @@ DEN explores how heterogeneous edge devices can cooperate as a distributed netwo
 
 The long-term project direction is a peer-to-peer edge-computing platform. Nodes should be able to discover peers, exchange information about their availability, select suitable participants for work, and continue operating when individual nodes become unavailable.
 
-The immediate engineering objective is deliberately narrower:
+The peer-runtime objective is deliberately narrower:
 
 > Build three independent node processes that can identify themselves, communicate with peers, maintain a local view of membership, detect peer unavailability, and recognize a peer when it rejoins.
 
-This first milestone establishes the communication and membership foundation required by later resource-aware scheduling, replication, and recovery experiments.
+The repository also contains an early LAN monitoring path: a coordinator on a Linux laptop accepts outbound HTTPS reports from enrolled node agents and exposes their last-seen status to a localhost-only dashboard. This monitoring path is separate from the peer-to-peer node runtime and does not yet execute distributed workloads.
 
 ## 2. Project objectives
 
@@ -80,13 +80,13 @@ The milestone includes:
 3. A persistent, locally generated identity for each node.
 4. A minimal node lifecycle and status endpoint.
 5. Versioned message contracts for peer hello and heartbeat exchanges.
-6. HTTP/JSON communication behind a transport interface.
+6. HTTP/JSON communication behind a transport interface; loopback HTTP for local development and mutual TLS (mTLS) for remote nodes.
 7. Static bootstrap peer configuration for initial peer discovery.
 8. A local peer registry maintained by each node.
-9. A development trust/allowlist check for peer identities.
+9. A development trust/allowlist check for peer identities, bound to CA-issued certificate identities on TLS connections.
 10. Heartbeat-based health tracking with `ALIVE`, `SUSPECT`, and `UNAVAILABLE` states.
 11. Peer recovery when a previously unavailable node returns.
-12. Automated tests and a repeatable three-node demonstration.
+12. A localhost-only, read-only dashboard and a repeatable staged deployment procedure.
 
 ### Explicitly deferred
 
@@ -98,8 +98,8 @@ The following are not required to complete this milestone:
 - Consensus or a globally consistent membership view.
 - Resource-aware task scheduling and workload execution.
 - The end-user messaging application, registration, and authentication flows.
-- Production PKI, public-network security hardening, and arbitrary third-party code execution.
-- Cross-platform installers and deployment automation.
+- Production PKI lifecycle automation, Internet/public-network deployment, and arbitrary third-party code execution.
+- Native cross-platform installers, including Windows EXE and Android APK packages.
 
 The first milestone is a networking foundation, not the complete end-user application.
 
@@ -160,12 +160,12 @@ The diagram represents peer communication, not a centralized coordinator. Each n
 | Process model | One independent process per node. |
 | Configuration | One configuration profile per node. |
 | Identity | Persistent random NodeID; never derived from IP address, hostname, or port. |
-| Transport | HTTP/JSON initially, behind a transport interface. |
+| Transport | HTTP/JSON behind a transport interface; HTTPS with mutual TLS when a node binds or advertises a non-loopback address. |
 | Bootstrap | Static seed peer addresses in configuration. |
 | Health tracking | Heartbeat request/response with configurable timeout and missed-heartbeat policy. |
 | Membership states | `ALIVE`, `SUSPECT`, `UNAVAILABLE`. |
 | Local persistence | Separate SQLite/data directory per node where persistence is required. |
-| Development trust | Explicit allowlist for expected peer identities. |
+| Development trust | Explicit NodeID allowlist; on TLS, the CA-issued client certificate common name must also equal the claimed NodeID. |
 
 HTTP/JSON is an initial implementation choice to simplify development and inspection. The transport boundary is intended to keep membership logic independent of the transport implementation. gRPC/Protocol Buffers may be evaluated after the protocol contracts stabilize; they are not a dependency of the first milestone.
 
@@ -187,6 +187,9 @@ DEN/
 │   │   └── heartbeat.py
 │   └── storage/
 │       └── database.py
+├── dashboard/
+│   ├── config.py
+│   └── main.py
 ├── protocols/
 │   └── messages.py
 ├── config/
@@ -195,7 +198,8 @@ DEN/
 │   └── node-c.yaml
 ├── scripts/
 │   ├── start_nodes.sh
-│   └── stop_nodes.sh
+│   ├── stop_nodes.sh
+│   └── start_dashboard.sh
 ├── tests/
 │   ├── unit/
 │   ├── component/
@@ -216,8 +220,9 @@ Each node must have a unique name, listening port, and data directory. A concept
 
 ```yaml
 node_name: node-a
-data_dir: ./runtime/node-a
+data_dir: ../runtime/node-a
 listen_host: 127.0.0.1
+advertised_host: 127.0.0.1
 listen_port: 8101
 
 bootstrap_peers:
@@ -231,6 +236,94 @@ unavailable_after_misses: 3
 Node B and Node C use separate data directories and ports (for example, `8102` and `8103`). Their bootstrap peer lists must be configured so that the nodes can form the intended peer view.
 
 The values above are development examples, not final tuned values. Configuration validation must reject invalid ports, invalid peer endpoints, shared data directories, and nonsensical timer settings.
+
+### Remote node network settings
+
+The checked-in profiles are loopback-only and use plain HTTP for the local demo. For machines on a private LAN or VPN, configure each node with settings like:
+
+```yaml
+node_name: node-a
+data_dir: ../runtime/node-a
+listen_host: 0.0.0.0
+advertised_host: 10.20.0.11  # this machine's stable private address
+listen_port: 8101
+bootstrap_peers:
+  - https://10.20.0.12:8102
+trusted_peer_ids:
+  - "<NodeID-of-node-b>"
+  - "<NodeID-of-node-c>"
+trusted_dashboard_ids:
+  - den-dashboard
+tls_ca_file: ../certs/den-ca.crt
+tls_cert_file: ../certs/node-a.crt
+tls_key_file: ../certs/node-a.key
+heartbeat_interval_seconds: 2
+heartbeat_timeout_seconds: 1
+unavailable_after_misses: 3
+```
+
+Use the reachable private address in `advertised_host`, and ensure the issued certificate has that address in its IP/DNS Subject Alternative Name (SAN). Each configured peer's URI host must match its certificate SAN. Non-loopback bind or advertised addresses are rejected unless mTLS files and a non-wildcard peer allowlist are configured. TLS private-key files must be mode `0600`.
+
+The `trusted_peer_ids` list is an application allowlist, not a substitute for certificate validation. A valid peer certificate must chain to `tls_ca_file`, have a common name (CN) equal to the claimed NodeID, and match the NodeID returned by the peer. Keep the CA private key offline or in a protected signing service. Never copy it to a node or commit private keys.
+
+#### Development certificate provisioning
+
+These commands illustrate a small private test CA. Run CA commands only on a trusted admin machine; distribute only `den-ca.crt` to nodes. For actual use, protect the CA key, verify each CSR's CN/SAN before signing, and rotate or revoke credentials when a machine is lost.
+
+```bash
+# On the trusted admin machine; keep den-ca.key private.
+openssl req -x509 -newkey rsa:4096 -nodes \
+  -keyout den-ca.key -out den-ca.crt -days 365 \
+  -subj "/CN=DEN-Private-Test-CA" \
+  -addext "basicConstraints=critical,CA:TRUE" \
+  -addext "keyUsage=critical,keyCertSign,cRLSign"
+```
+
+On each node machine, first generate its stable identity, then create its private key and CSR locally. Substitute that machine's reachable private IP in the SAN:
+
+```bash
+cd DEN
+mkdir -p certs
+NODE_ID="$(python3 -m node.main --config config/node-a.yaml --init-identity)"
+openssl req -new -newkey rsa:3072 -nodes \
+  -keyout certs/node-a.key -out certs/node-a.csr \
+  -subj "/CN=${NODE_ID}" \
+  -addext "subjectAltName=IP:10.20.0.11"
+chmod 600 certs/node-a.key
+```
+
+`--init-identity` reads only the configured data directory, so it works before the TLS certificate files exist.
+
+Transfer only the CSR to the CA admin. Verify that its CN is the expected NodeID and the SAN is the assigned private address:
+
+```bash
+openssl req -in node-a.csr -noout -subject -text
+```
+
+After verification, the CA admin creates `node-a.ext` with the correct SAN and client/server usages, then signs:
+
+```text
+basicConstraints=CA:FALSE
+keyUsage=digitalSignature,keyEncipherment
+extendedKeyUsage=serverAuth,clientAuth
+subjectAltName=IP:10.20.0.11
+```
+
+```bash
+openssl x509 -req -in node-a.csr -CA den-ca.crt -CAkey den-ca.key \
+  -CAcreateserial -out node-a.crt -days 90 -sha256 -extfile node-a.ext
+```
+
+Repeat with a unique NodeID, address, key, and certificate per node. Create the dashboard client key and CSR on the dashboard machine, using its reserved CN:
+
+```bash
+openssl req -new -newkey rsa:3072 -nodes \
+  -keyout certs/dashboard.key -out certs/dashboard.csr \
+  -subj "/CN=den-dashboard"
+chmod 600 certs/dashboard.key
+```
+
+Have the same CA sign the dashboard CSR with `basicConstraints=CA:FALSE`, `keyUsage=digitalSignature,keyEncipherment`, and `extendedKeyUsage=clientAuth`. Install the CA public certificate and dashboard client certificate/key only where needed; keep `den-dashboard` in the nodes' `trusted_dashboard_ids`.
 
 ## 8. Protocol outline
 
@@ -247,12 +340,15 @@ A hello exchange allows nodes to introduce themselves and exchange basic protoco
 - `node_name`
 - `advertised_host`
 - `advertised_port`
+- `advertised_scheme`
+- `advertised_scheme`
 - `capabilities`
 
 **Hello response fields**
 
 - `protocol_version`
 - `node_id`
+- `node_name`
 - `accepted`
 - `capabilities`
 - `known_peers` — bounded list; may be omitted in the first two-node slice.
@@ -307,25 +403,139 @@ A missed heartbeat is not proof of permanent failure. The implementation must av
 
 The initial target environment is Linux (Ubuntu) with Python.
 
-A typical setup sequence, once the project files are in place, will be:
+A setup sequence for the current prototype is:
 
 ```bash
-# Clone the repository
-git clone <repository-url>
-cd <repository-directory>
+# From the repository root
+cd DEN
 
 # Create and activate a virtual environment
+# Python 3.11 or newer is required.
 python3 -m venv .venv
 source .venv/bin/activate
 
 # Install the project's pinned dependencies
 pip install -r requirements.txt
 
-# Run the automated test suite
-pytest
+# Run unit and three-process integration tests
+python3 -m unittest discover -s tests -v
+
+# Launch, inspect, and stop the three local nodes
+./scripts/start_nodes.sh
+./scripts/status.sh
+./scripts/stop_nodes.sh
 ```
 
-These are setup conventions; the dependency manifest and test configuration are established in tasks `T003`–`T005`. Do not assume the three-node launch scripts are available until tasks `T043` and `T044` are completed.
+The node configuration paths are relative to their YAML files. Runtime identities, logs, and PID files are stored under `DEN/runtime/`, which is ignored by Git.
+
+### LAN monitoring test: Linux coordinator, Windows node, Android phone
+
+The monitor path is a **Python foreground prototype**, not a packaged desktop/mobile app. Its automated integration test runs locally; physical Windows and Android devices have not been tested from this development environment. The Android instructions use Termux and are not an APK install.
+
+Installable packages are being added separately from the developer-run prototype. The Debian package installs the Linux coordinator/dashboard and the desktop `Join DEN` setup app. Windows and Android installer artifacts are built by the repository's `Build DEN installers` workflow; download its artifacts after the code is available in GitHub. The Python `Join DEN` setup app collects monitor URL, node name, enrollment code, and public CA certificate, then stores the device identity/credential in the user's data directory.
+
+On Debian/Ubuntu, build and install the Linux package from the repository root:
+
+```bash
+DEN/packaging/linux/build_deb.sh
+sudo apt install ./DEN/dist/den-monitor_0.1.0_amd64.deb
+```
+
+The package enables the monitor and localhost dashboard at startup. Open `http://127.0.0.1:8765`; read the first-time enrollment code with `sudo den-pairing-code`. Launch **Join DEN** from the desktop app menu (or run `den-join`), and select `/etc/den/den-ca.crt` as the CA certificate. The Linux coordinator's HTTPS URL is printed by the package setup and is also visible in the dashboard configuration at `/etc/den/dashboard.yaml`. To remove the package, use `sudo apt remove den-monitor`; node identity data under the user's data directory is not removed by package removal.
+
+To produce the Windows EXE and Android APK, push the source to GitHub and run the [Build DEN installers workflow](https://github.com/SOLPLAY/205226019/actions/workflows/build-installers.yml), then download the `den-windows-exe` and `den-android-apk` workflow artifacts. The Windows EXE is a first-run node setup app. The Android package is a native foreground node app. Pair each with the Linux monitor URL, enrollment code, and public CA certificate; enrollment is a one-time step per device.
+
+All three devices must be on the same trusted Wi-Fi or VPN. The Linux laptop runs the coordinator and dashboard; each node opens outbound HTTPS to it. Do not configure router port forwarding. Keep the dashboard bound to `127.0.0.1`.
+
+#### 1. Start the coordinator on Linux
+
+On the Linux laptop, reserve/find its private LAN address and, from the repository root:
+
+```bash
+cd DEN
+./scripts/init_monitor_tls.sh 192.168.1.10
+cp config/agent.example.yaml config/agent.yaml
+cp config/dashboard-lan.example.yaml config/dashboard-lan.yaml
+```
+
+Replace `192.168.1.10` with the Linux laptop's actual stable Wi-Fi/VPN address in both YAML files' `monitor_url` values. Keep `DEN/certs/den-ca.key` private; nodes need only `DEN/certs/den-ca.crt`. The monitor config already points to the generated certificate and key. Start it:
+
+```bash
+./scripts/start_monitor.sh
+```
+
+On first start it prints an enrollment code and dashboard token. The code can enroll at most three distinct nodes by default; each device enters it once, and thereafter reuses its saved per-node credential. The dashboard reads its token from the private runtime file.
+
+In another Linux terminal, start the dashboard using the LAN example:
+
+```bash
+cd DEN
+python3 -m dashboard.main --config config/dashboard-lan.yaml
+```
+
+Open `http://127.0.0.1:8765` on the Linux laptop. The dashboard endpoint is intentionally not exposed to the LAN.
+
+#### 2. Run the Linux node
+
+Install the requirements if not already installed, edit `config/agent.yaml` to set a unique `node_name` (for example `linux-node`), and run:
+
+```bash
+cd DEN
+python3 -m pip install -r requirements.txt
+python3 -m node.agent --config config/agent.yaml
+```
+
+At the hidden prompt, enter the enrollment code printed by the coordinator. Keep the process running in the foreground.
+
+#### 3. Run the Windows node
+
+On Windows, install Python 3.11 or newer, place/clone the project, and copy `DEN/certs/den-ca.crt` from Linux to the matching `DEN/certs/` path. In PowerShell, from the `DEN` directory:
+
+```powershell
+py -3 -m pip install -r requirements.txt
+Copy-Item config/agent.example.yaml config/agent.yaml
+```
+
+Edit `config/agent.yaml` so `node_name` is `windows-node`, `data_dir` is a unique path such as `../runtime/windows-node`, `monitor_url` uses the Linux laptop's LAN address, and `monitor_ca_file` points to the copied CA certificate. Then run:
+
+```powershell
+py -3 -m node.agent --config config/agent.yaml
+```
+
+Enter the enrollment code at the prompt. The Windows firewall may ask whether to allow Python outbound connections; allow access only on the private network. The node does not need an inbound listener.
+
+#### 4. Run the Android node with Termux
+
+Install Termux from its official source, then in Termux install Python and Git, clone/copy the repository, and install its requirement:
+
+```sh
+pkg update
+pkg install python git
+git clone <your-repository-url>
+cd 205226019/DEN
+python -m pip install -r requirements.txt
+cp config/agent.example.yaml config/agent.yaml
+```
+
+Edit `config/agent.yaml` with `node_name: android-node`, a device-local `data_dir`, the Linux monitor URL, and a path to a copy of `den-ca.crt`. Start it in the foreground:
+
+```sh
+python -m node.agent --config config/agent.yaml
+```
+
+Enter the enrollment code. Android may pause or terminate Termux when the app is backgrounded or the phone sleeps; keep Termux open during this manual test. This is not a native Android service or APK.
+
+#### 5. Check liveness and recovery
+
+The dashboard should show three enrolled node rows. With the default monitor configuration, a node becomes `SUSPECT` after 12 seconds without a report and `UNAVAILABLE` after 25 seconds. Stop one agent with Ctrl+C, wait for the state change, then restart it: it should reuse its saved credential and return to `ACTIVE`. To test a whole-device loss, disconnect one device from Wi-Fi or shut it down. Check Linux firewall rules permit inbound TCP 8443 only from the trusted private network; the dashboard stays on loopback.
+
+For code-level checks, run the tests from `DEN/`:
+
+```bash
+python3 -m unittest discover -s tests -v
+```
+
+The automated integration test exercises enrollment, authenticated heartbeats, coordinator-backed dashboard data, and offline detection on one host. It does not replace the physical three-device procedure above.
 
 ## 11. Implementation plan
 
@@ -358,10 +568,66 @@ The milestone requires tests at several levels.
 
 | Test level | Examples |
 |---|---|
-| Unit | Configuration validation, identity persistence, protocol validation, peer registry operations, and health-state transitions. |
-| Component | HTTP endpoint behavior, transport timeouts, and rejection of untrusted peer identities. |
-| Integration | Two-node hello/heartbeat, three-node peer exchange, node shutdown, and rejoin. |
+| Unit | Node/dashboard configuration validation, identity persistence, protocol validation, peer registry operations, and health-state transitions. |
+| Component | HTTP endpoint behavior, transport timeouts, rejection of untrusted identities, and dashboard configuration. |
+| Integration | Two-node hello/heartbeat, three-node peer exchange, mTLS certificate identity enforcement, dashboard status polling, node shutdown, and rejoin. |
 | Manual demonstration | Launch all nodes, inspect membership, stop one node, observe unavailability, restart it, and observe recovery. |
+
+### Local monitoring dashboard
+
+With the three local nodes running, use a second terminal from `DEN/`:
+
+```bash
+./scripts/start_dashboard.sh
+```
+
+Open `http://127.0.0.1:8765`. The dashboard polls configured nodes every two seconds and shows node state, NodeID, uptime, local peer states, and unreachable nodes. Edit `config/dashboard.yaml` to set node endpoints and (recommended) expected `node_id` values. It is read-only and binds only to a loopback address. For remote viewing, run it on a trusted machine and use an SSH local port forward; do not bind the dashboard to `0.0.0.0`.
+
+For remote HTTPS nodes, configure the dashboard with `tls_ca_file`, `tls_cert_file`, and `tls_key_file` (the dashboard's `CN=den-dashboard` client credential). Set each monitored entry's endpoint to its node's HTTPS address and `node_id` to its expected persistent ID. The dashboard verifies the server certificate chain, endpoint SAN, and certificate CN/NodeID match.
+
+### Staged multi-machine deployment test
+
+1. **Keep the first baseline:** run the existing local tests and local three-node demo. Keep the loopback profiles as-is.
+2. **Prepare a private network:** place the machines on a trusted LAN or VPN with stable private addresses. Do not use public port forwarding. Permit TCP node ports only between participating nodes and the dashboard host.
+3. **Provision identities and certificates:** initialize each NodeID; create each private key and CSR on that node; have the CA sign only after verifying the NodeID CN and address SAN. Create a separate `den-dashboard` client certificate. Distribute the CA certificate and node-specific cert/key files securely; keep keys mode `0600`.
+4. **Configure explicit trust:** set each node's `listen_host`, `advertised_host`, HTTPS bootstrap URLs, CA/certificate/key files, and explicit NodeID allowlist. Add `den-dashboard` to `trusted_dashboard_ids`. Set dashboard HTTPS endpoints, expected NodeIDs, and its own TLS CA/certificate/key.
+5. **Validate one link first:** start one node on each of two machines. Check `https://<private-address>:<port>/status` with a CA file and client certificate, then confirm hello and heartbeat state. A hostname/SAN, CA, or identity mismatch should fail closed.
+6. **Expand to three machines:** start the remaining node, confirm all intended peers appear as `ALIVE` in local `/peers` views and in the dashboard. The views are local observations, not a globally consistent registry.
+7. **Exercise failure and rejoin:** stop one node, record when peers show `SUSPECT` and `UNAVAILABLE`, restart it, and record recovery to `ALIVE`. Repeat after a full node restart to confirm its NodeID persisted.
+8. **Record evidence:** capture OS/Python versions, private addresses (not private keys), certificate SAN/CN and issuer, firewall/VPN scope, configs with secrets removed, log timestamps, and observed failure/recovery times.
+
+The dashboard machine must be able to reach each configured node endpoint. For remote viewing of a dashboard running on a separate host, keep its bind address at `127.0.0.1` and create the tunnel from your workstation:
+
+```bash
+ssh -L 8765:127.0.0.1:8765 user@dashboard-host
+```
+
+Then open `http://127.0.0.1:8765` on the workstation. The current prototype does not automate CA issuance/revocation, certificate rotation, VPN/firewall configuration, or multi-host orchestration; this procedure is for controlled private-network experiments only.
+
+### Manual three-node failure and recovery check
+
+Run these commands from `DEN/` after installing the requirements:
+
+```bash
+./scripts/start_nodes.sh
+./scripts/status.sh
+
+# Stop only Node C; allow the other nodes a few heartbeat intervals.
+./scripts/stop_node.sh node-c
+sleep 7
+./scripts/status.sh
+
+# Restart C with its existing data directory and NodeID.
+./scripts/start_node.sh node-c
+sleep 3
+./scripts/status.sh
+
+./scripts/stop_nodes.sh
+```
+
+In Node A's `/peers` output, verify that Node C moves from `ALIVE` through `SUSPECT` to `UNAVAILABLE`, then returns to `ALIVE` after restart. Each process writes JSON logs to `runtime/node-*.log`; peer state changes and identity are visible there. The automated integration test performs the same sequence and checks that Node A learns Node C through Node B.
+
+The sample profiles use `trusted_peer_ids: ["*"]` only to simplify a loopback-only demonstration. The loader rejects wildcard trust when mTLS is configured and requires mTLS for non-loopback bind or advertised addresses. Plain HTTP is permitted only for loopback development.
 
 ### Milestone acceptance criteria
 
@@ -382,14 +648,14 @@ The milestone is complete when:
 
 The initial implementation is for controlled local development.
 
-- Bind development endpoints to loopback unless a controlled multi-machine test explicitly requires a LAN interface.
-- Do not expose unauthenticated development endpoints to the public Internet.
+- Keep development endpoints on loopback; controlled multi-machine experiments require a private LAN/VPN and mTLS.
+- Do not expose development endpoints or the dashboard to the public Internet.
 - Keep peer discovery separate from peer authorization.
 - Validate peer identity before accepting peer health information.
 - Use bounded request timeouts and bounded peer-list responses.
 - Keep each node's identity and local data isolated.
 - Do not execute arbitrary workloads received from peers.
-- Do not describe the development allowlist as production-grade authentication.
+- Do not describe this experimental CA setup as a production PKI.
 - Do not claim consensus, strong consistency, or Byzantine fault tolerance unless those guarantees are implemented and evaluated.
 
 ## 14. Research direction and evaluation
@@ -411,8 +677,14 @@ For every experiment, record the software revision, configuration, machine speci
 - Static bootstrap configuration is a joining mechanism, not a complete decentralized discovery solution.
 - Membership is a local, eventually updated view; nodes are not guaranteed to have identical views at every instant.
 - Heartbeat-based failure detection can mistake delay or packet loss for failure.
+- Peer membership is currently in memory and is lost when that node process restarts; node identity alone is persisted.
+- The HTTP listener uses Python's threaded standard-library server while discovery and heartbeat scheduling use asyncio tasks; this is a replaceable development transport, not a production ASGI service.
+- The checked-in profiles use loopback wildcard trust for convenience and must not be exposed beyond the local development machine.
 - A three-process single-host test shares physical CPU, memory, and network resources.
 - The first milestone does not implement event replication, task scheduling, messaging, or a production security model.
+- The LAN coordinator and foreground agent are separate from the peer-to-peer runtime. Reports currently contain no peer observations, so the monitor tracks enrolled-node liveness and basic platform/version details only.
+- There are no native EXE/APK installers or Android background service yet. Windows and Android device behavior still needs physical testing.
+- The development monitor CA setup script creates a local test CA; it is not production certificate lifecycle tooling.
 
 ## 16. Author
 

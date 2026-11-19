@@ -1,0 +1,1 @@
+"""Local DEN monitoring dashboard."""

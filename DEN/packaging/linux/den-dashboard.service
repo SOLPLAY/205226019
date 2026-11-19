@@ -1,0 +1,22 @@
+[Unit]
+Description=DEN localhost monitoring dashboard
+After=den-monitor.service
+Requires=den-monitor.service
+
+[Service]
+Type=simple
+User=den
+Group=den
+WorkingDirectory=/usr/lib/den
+ExecStart=/usr/bin/python3 -m dashboard.main --config /etc/den/dashboard.yaml
+Restart=on-failure
+RestartSec=3
+UMask=0077
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=strict
+ProtectHome=true
+ReadWritePaths=/var/lib/den
+
+[Install]
+WantedBy=multi-user.target

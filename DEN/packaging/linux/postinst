@@ -1,0 +1,22 @@
+#!/bin/sh
+set -e
+
+if ! getent group den >/dev/null; then
+    addgroup --system den
+fi
+if ! getent passwd den >/dev/null; then
+    adduser --system --ingroup den --home /var/lib/den --no-create-home --shell /usr/sbin/nologin den
+fi
+install -d -o den -g den -m 0750 /var/lib/den
+install -d -o root -g den -m 0750 /etc/den /etc/den/certs
+install -d -o root -g root -m 0755 /usr/lib/den
+systemctl daemon-reload
+if [ "$1" = configure ]; then
+    systemctl enable --now den-monitor.service
+    systemctl enable --now den-dashboard.service
+    printf '\nDEN monitor and dashboard are starting.\n'
+    printf 'Open http://127.0.0.1:8765 on this Linux computer.\n'
+    printf 'Check first-time setup output with: sudo journalctl -u den-monitor -n 40 --no-pager\n'
+fi
+
+exit 0

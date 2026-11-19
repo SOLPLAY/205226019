@@ -1,0 +1,12 @@
+node_name: node-b
+data_dir: ../runtime/node-b
+listen_host: 127.0.0.1
+listen_port: 8102
+bootstrap_peers:
+  - http://127.0.0.1:8101
+  - http://127.0.0.1:8103
+trusted_peer_ids:
+  - "*"
+heartbeat_interval_seconds: 2
+heartbeat_timeout_seconds: 0.8
+unavailable_after_misses: 3

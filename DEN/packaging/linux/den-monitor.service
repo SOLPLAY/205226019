@@ -1,0 +1,23 @@
+[Unit]
+Description=DEN LAN node monitor
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=den
+Group=den
+WorkingDirectory=/usr/lib/den
+ExecStartPre=+/usr/bin/python3 /usr/lib/den/packaging/linux/firstboot.py
+ExecStart=/usr/bin/python3 -m monitor.server --config /etc/den/monitor.yaml
+Restart=on-failure
+RestartSec=3
+UMask=0077
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=strict
+ProtectHome=true
+ReadWritePaths=/var/lib/den /etc/den
+
+[Install]
+WantedBy=multi-user.target

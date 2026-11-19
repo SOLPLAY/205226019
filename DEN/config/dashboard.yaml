@@ -1,0 +1,10 @@
+listen_host: 127.0.0.1
+listen_port: 8765
+poll_timeout_seconds: 2
+nodes:
+  - name: node-a
+    endpoint: http://127.0.0.1:8101
+  - name: node-b
+    endpoint: http://127.0.0.1:8102
+  - name: node-c
+    endpoint: http://127.0.0.1:8103

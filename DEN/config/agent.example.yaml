@@ -1,0 +1,6 @@
+node_name: node-name
+data_dir: ../runtime/node-name
+monitor_url: https://192.168.1.10:8443
+monitor_ca_file: ../certs/den-ca.crt
+heartbeat_interval_seconds: 5
+protocol_version: "0.1"

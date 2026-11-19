@@ -1,0 +1,12 @@
+listen_host: 0.0.0.0
+listen_port: 8443
+database_path: ../runtime/monitor.sqlite3
+enrollment_code_file: ../runtime/enrollment-code
+dashboard_token_file: ../runtime/dashboard-token
+tls_cert_file: ../certs/monitor.crt
+tls_key_file: ../certs/monitor.key
+tls_ca_file: ../certs/den-ca.crt
+heartbeat_interval_seconds: 5
+suspect_after_seconds: 12
+unavailable_after_seconds: 25
+max_enrollments: 3
