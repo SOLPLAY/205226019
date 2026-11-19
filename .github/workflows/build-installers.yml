@@ -22,7 +22,7 @@ jobs:
         working-directory: DEN
         run: python3 -m unittest discover -s tests -v
       - name: Build Debian package
-        run: DEN/packaging/linux/build_deb.sh DEN/dist
+        run: bash DEN/packaging/linux/build_deb.sh DEN/dist
       - uses: actions/upload-artifact@v4
         with:
           name: den-linux-deb
@@ -56,9 +56,13 @@ jobs:
           distribution: temurin
           java-version: "17"
       - uses: android-actions/setup-android@v3
+        with:
+          packages: ''
+      - name: Install Android SDK build packages
+        run: sdkmanager "platform-tools" "platforms;android-35" "build-tools;35.0.0"
       - name: Build Android APK
         working-directory: DEN/android
-        run: ./gradlew --no-daemon assembleDebug
+        run: bash ./gradlew --no-daemon assembleDebug
       - uses: actions/upload-artifact@v4
         with:
           name: den-android-apk
