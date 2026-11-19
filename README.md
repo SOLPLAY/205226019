@@ -2,8 +2,8 @@
 
 *A research prototype for a self-organizing, resource-aware, failure-tolerant distributed edge network.*
 
-**Current implementation milestones:** Three-node peer prototype; LAN monitoring/enrollment prototype
-**Implementation plan:** `DEN-IMP-002`  
+**Current implementation milestones:** Three-node peer prototype; Linux/Windows LAN monitoring prototype
+**Implementation plans:** `DEN-IMP-002` (peer prototype), `DEN-IMP-003` (current status and next milestones)
 **Research methodology:** `DEN-EXP-001`
 
 ---
@@ -65,32 +65,28 @@ The following documents define the research and implementation direction.
 | `DEN-IMP-001` | End-to-end implementation roadmap. |
 | `DEN-EXP-001` | Research questions, hypotheses, baselines, experimental design, metrics, and validity considerations. |
 | `DEN-IMP-002` | Atomic task plan for implementing three communicating autonomous nodes. |
+| [`DEN-IMP-003`](DEN/docs/DEN-IMP-003_Implementation_Status_and_Next_Milestones.docx) | Implementation status, deviations from `DEN-IMP-002`, verified results, limitations, and next milestones. |
 
 
 ## 4. Current implementation scope
 
-### Milestone: Three autonomous nodes communicating
+### Original milestone: Three autonomous nodes communicating
 
-The initial prototype will run three separate node processes. Development begins with three processes on one Linux machine; the same design will subsequently be tested across separate physical machines.
+`DEN-IMP-002` defined a peer-to-peer prototype: three independent node processes with stable identities, configured peer communication, local membership and health views, and failure/rejoin testing. That peer runtime is implemented and its three-process local integration scenario passes.
 
-The milestone includes:
+### Follow-up milestone: LAN monitoring and multi-machine enrollment
 
-1. A reproducible Python development environment.
-2. Separate configuration and data directories for Node A, Node B, and Node C.
-3. A persistent, locally generated identity for each node.
-4. A minimal node lifecycle and status endpoint.
-5. Versioned message contracts for peer hello and heartbeat exchanges.
-6. HTTP/JSON communication behind a transport interface; loopback HTTP for local development and mutual TLS (mTLS) for remote nodes.
-7. Static bootstrap peer configuration for initial peer discovery.
-8. A local peer registry maintained by each node.
-9. A development trust/allowlist check for peer identities, bound to CA-issued certificate identities on TLS connections.
-10. Heartbeat-based health tracking with `ALIVE`, `SUSPECT`, and `UNAVAILABLE` states.
-11. Peer recovery when a previously unavailable node returns.
-12. A localhost-only, read-only dashboard and a repeatable staged deployment procedure.
+After the peer prototype, a separate hub-and-spoke monitoring path was added to support practical multi-machine trials:
 
-### Explicitly deferred
+- A Linux laptop runs the HTTPS monitor and a localhost-only dashboard.
+- Independently enrolled node agents open outbound HTTPS connections to that monitor.
+- A persistent registry reports `ACTIVE`, `SUSPECT`, or `UNAVAILABLE` from heartbeat age.
+- Linux and Windows machines have been confirmed reporting to the monitor.
+- A Debian package and node setup applications/build sources have been added; the Windows/Android installer workflow is not yet fully verified.
 
-The following are not required to complete this milestone:
+This coordinator is a monitoring and enrollment service; it does not replace the original peer-to-peer membership protocol and does not schedule or run distributed work.
+
+### Still deferred
 
 - Internet-wide discovery and NAT traversal.
 - Gossip membership at scale or a complete SWIM implementation.
@@ -99,9 +95,9 @@ The following are not required to complete this milestone:
 - Resource-aware task scheduling and workload execution.
 - The end-user messaging application, registration, and authentication flows.
 - Production PKI lifecycle automation, Internet/public-network deployment, and arbitrary third-party code execution.
-- Native cross-platform installers, including Windows EXE and Android APK packages.
+- A validated Android deployment and reliable cross-platform release pipeline.
 
-The first milestone is a networking foundation, not the complete end-user application.
+These milestones provide a networking and monitoring foundation, not the complete end-user application or a production distributed-computing platform.
 
 ## 5. Initial architecture
 
@@ -210,7 +206,7 @@ DEN/
 └── README.md
 ```
 
-This is the target structure, not a claim that every module or script has already been implemented. The repository may evolve as atomic tasks are completed.
+The repository has grown beyond this original peer-runtime layout. In addition to these components, it now contains `monitor/` for the coordinator, `node/agent.py` and `node/setup_gui.py` for outbound node onboarding, `android/` for the native Android client, and `packaging/` for Linux deployment. See `DEN-IMP-003` for which parts have been built and verified.
 
 ## 7. Node configuration
 
@@ -430,9 +426,9 @@ The node configuration paths are relative to their YAML files. Runtime identitie
 
 ### LAN monitoring test: Linux coordinator, Windows node, Android phone
 
-The monitor path is a **Python foreground prototype**, not a packaged desktop/mobile app. Its automated integration test runs locally; physical Windows and Android devices have not been tested from this development environment. The Android instructions use Termux and are not an APK install.
+The monitor path is a **prototype**. Linux and Windows machines have been confirmed reporting to the Linux-hosted monitor. Android source code exists, but an APK build and physical Android test are not yet confirmed.
 
-Installable packages are being added separately from the developer-run prototype. The Debian package installs the Linux coordinator/dashboard and the desktop `Join DEN` setup app. Windows and Android installer artifacts are built by the repository's `Build DEN installers` workflow; download its artifacts after the code is available in GitHub. The Python `Join DEN` setup app collects monitor URL, node name, enrollment code, and public CA certificate, then stores the device identity/credential in the user's data directory.
+The Debian package installs the Linux coordinator/dashboard and the desktop `Join DEN` setup app. A Windows setup-app build and native Android source/build configuration are present. The GitHub Actions installer workflow has failed for Linux package execution permissions and Android SDK setup; although the workflow was adjusted, a successful end-to-end rerun has not been confirmed. Do not treat those installer artifacts as verified releases.
 
 On Debian/Ubuntu, build and install the Linux package from the repository root:
 
@@ -443,7 +439,7 @@ sudo apt install ./DEN/dist/den-monitor_0.1.0_amd64.deb
 
 The package enables the monitor and localhost dashboard at startup. Open `http://127.0.0.1:8765`; read the first-time enrollment code with `sudo den-pairing-code`. Launch **Join DEN** from the desktop app menu (or run `den-join`), and select `/etc/den/den-ca.crt` as the CA certificate. The Linux coordinator's HTTPS URL is printed by the package setup and is also visible in the dashboard configuration at `/etc/den/dashboard.yaml`. To remove the package, use `sudo apt remove den-monitor`; node identity data under the user's data directory is not removed by package removal.
 
-To produce the Windows EXE and Android APK, push the source to GitHub and run the [Build DEN installers workflow](https://github.com/SOLPLAY/205226019/actions/workflows/build-installers.yml), then download the `den-windows-exe` and `den-android-apk` workflow artifacts. The Windows EXE is a first-run node setup app. The Android package is a native foreground node app. Pair each with the Linux monitor URL, enrollment code, and public CA certificate; enrollment is a one-time step per device.
+When the [Build DEN installers workflow](https://github.com/SOLPLAY/205226019/actions/workflows/build-installers.yml) is repaired and passes, it is intended to publish a Windows setup executable and Android APK as workflow artifacts. Their build and installation must be verified before distributing them. See `DEN-IMP-003` for the current status and next steps.
 
 All three devices must be on the same trusted Wi-Fi or VPN. The Linux laptop runs the coordinator and dashboard; each node opens outbound HTTPS to it. Do not configure router port forwarding. Keep the dashboard bound to `127.0.0.1`.
 
@@ -504,9 +500,9 @@ py -3 -m node.agent --config config/agent.yaml
 
 Enter the enrollment code at the prompt. The Windows firewall may ask whether to allow Python outbound connections; allow access only on the private network. The node does not need an inbound listener.
 
-#### 4. Run the Android node with Termux
+#### 4. Optional source-level Android test with Termux
 
-Install Termux from its official source, then in Termux install Python and Git, clone/copy the repository, and install its requirement:
+This is a developer fallback, not the native Android app. The native APK source and its current build limitation are documented in `DEN-IMP-003` and `android/README.md`. If you want to test the Python agent in Termux instead, install Termux from its official source, then install Python and Git, clone/copy the repository, and install its requirement:
 
 ```sh
 pkg update
@@ -683,7 +679,7 @@ For every experiment, record the software revision, configuration, machine speci
 - A three-process single-host test shares physical CPU, memory, and network resources.
 - The first milestone does not implement event replication, task scheduling, messaging, or a production security model.
 - The LAN coordinator and foreground agent are separate from the peer-to-peer runtime. Reports currently contain no peer observations, so the monitor tracks enrolled-node liveness and basic platform/version details only.
-- There are no native EXE/APK installers or Android background service yet. Windows and Android device behavior still needs physical testing.
+- The Windows installer workflow and Android APK pipeline are not yet verified end-to-end; physical Android connectivity has not been confirmed.
 - The development monitor CA setup script creates a local test CA; it is not production certificate lifecycle tooling.
 
 ## 16. Author
